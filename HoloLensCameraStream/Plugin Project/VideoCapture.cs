@@ -14,12 +14,11 @@ using Windows.Media.Capture;
 using Windows.Media.Capture.Frames;
 using Windows.Media.MediaProperties;
 using Windows.Media.Effects;
+using Microsoft.Media.RTMP;
 using Windows.Perception.Spatial;
 using Windows.Foundation.Collections;
 using Windows.Foundation;
-using System.Diagnostics;
-
-
+using Windows.Media;
 
 namespace HoloLensCameraStream
 {
@@ -50,6 +49,10 @@ namespace HoloLensCameraStream
     /// </summary>
     /// <param name="result">Indicates whether or not video mode was successfully deactivated.</param>
     public delegate void OnVideoModeStoppedCallback(VideoCaptureResult result);
+
+    public delegate void OnSessionPublishFailed(string reason);
+
+    public delegate void OnSessionClosedHandler(string reason);
 
     /// <summary>
     /// Streams video from the camera and makes the buffer available for reading.
@@ -107,7 +110,7 @@ namespace HoloLensCameraStream
         {
             get
             {
-                return _frameReader != null;
+                return _frameReader != null || _lowlagCapture != null;
             }
         }
 
@@ -126,14 +129,22 @@ namespace HoloLensCameraStream
         MediaFrameSourceGroup _frameSourceGroup;
         MediaFrameSourceInfo _frameSourceInfo;
         DeviceInformation _deviceInfo;
+        DeviceInformation _audioDeviceInfo;
         MediaCapture _mediaCapture;
         MediaFrameReader _frameReader;
-        
-        VideoCapture(MediaFrameSourceGroup frameSourceGroup, MediaFrameSourceInfo frameSourceInfo, DeviceInformation deviceInfo)
+
+        // For RTMP streaming
+        RTMPPublishSession _rtmpPublishSession = null;
+        PublishProfile _pubProfile = null;
+        LowLagMediaRecording _lowlagCapture = null;
+        IMediaExtension _sink = null;
+
+        VideoCapture(MediaFrameSourceGroup frameSourceGroup, MediaFrameSourceInfo frameSourceInfo, DeviceInformation deviceInfo, DeviceInformation audioDevice = null)
         {
             _frameSourceGroup   = frameSourceGroup;
             _frameSourceInfo    = frameSourceInfo;
             _deviceInfo         = deviceInfo;
+            _audioDeviceInfo    = audioDevice;
         }
 
         /// <summary>
@@ -141,7 +152,7 @@ namespace HoloLensCameraStream
         /// If the instance failed to be created, the instance returned will be null. Also, holograms will not appear in the video.
         /// </summary>
         /// <param name="onCreatedCallback">This callback will be invoked when the VideoCapture instance is created and ready to be used.</param>
-        public static async void CreateAync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
+        public static async void CreateAsync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
         {
             var allFrameSourceGroups = await MediaFrameSourceGroup.FindAllAsync();                                              //Returns IReadOnlyList<MediaFrameSourceGroup>
             var candidateFrameSourceGroups = allFrameSourceGroups.Where(group => group.SourceInfos.Any(IsColorVideo));   //Returns IEnumerable<MediaFrameSourceGroup>
@@ -161,16 +172,26 @@ namespace HoloLensCameraStream
                 return;
             }
             
-            var devices = await DeviceInformation.FindAllAsync(DeviceClass.VideoCapture);   //Returns DeviceCollection
-            var deviceInformation = devices.FirstOrDefault();                               //Returns a single DeviceInformation
+            var videoDevices = await DeviceInformation.FindAllAsync(DeviceClass.VideoCapture);   //Returns DeviceCollection
+            var videoDeviceInformation = videoDevices.FirstOrDefault();                               //Returns a single DeviceInformation
             
-            if (deviceInformation == null)
+            if (videoDeviceInformation == null)
             {
                 onCreatedCallback(null);
                 return;
             }
 
-            var videoCapture = new VideoCapture(selectedFrameSourceGroup, selectedFrameSourceInfo, deviceInformation);
+            // We want to capture audio too
+            var audioDevices = await DeviceInformation.FindAllAsync(DeviceClass.AudioCapture);
+            var audioDeviceInformation = audioDevices.FirstOrDefault();
+
+            if (audioDeviceInformation == null)
+            {
+                onCreatedCallback(null);
+                return;
+            }
+
+            var videoCapture = new VideoCapture(selectedFrameSourceGroup, selectedFrameSourceInfo, videoDeviceInformation, audioDeviceInformation);
             await videoCapture.CreateMediaCaptureAsync();
             onCreatedCallback?.Invoke(videoCapture);
         }
@@ -218,6 +239,64 @@ namespace HoloLensCameraStream
             }
 
             return frameRates.AsReadOnly();
+        }
+
+        public async void startRTMPStreamingAsync(
+            string url,
+            OnSessionPublishFailed onFailedCallback = null,
+            OnSessionClosedHandler onClosedCallback = null
+        )
+        {
+            var srcvideoencodingprops = _mediaCapture.VideoDeviceController.GetMediaStreamProperties(MediaStreamType.VideoRecord) as VideoEncodingProperties;
+            var srcaudioencodingprops = _mediaCapture.AudioDeviceController.GetMediaStreamProperties(MediaStreamType.Audio) as AudioEncodingProperties;
+
+            _pubProfile = new PublishProfile(RTMPServerType.Generic);
+
+            // Destination and lag
+            _pubProfile.EndpointUri = url;
+            _pubProfile.EnableLowLatency = true;
+
+            // H264 Encoding
+            _pubProfile.TargetEncodingProfile = MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD720p);
+            _pubProfile.TargetEncodingProfile.Container = null;
+            _pubProfile.TargetEncodingProfile.Video.ProfileId = H264ProfileIds.Main;
+
+            // Video size and fine tuning
+            _pubProfile.TargetEncodingProfile.Video.Width = srcvideoencodingprops.Width;
+            _pubProfile.TargetEncodingProfile.Video.Height = srcvideoencodingprops.Height;
+            _pubProfile.TargetEncodingProfile.Video.Bitrate = srcvideoencodingprops.Bitrate;
+            _pubProfile.KeyFrameInterval = 2;
+            _pubProfile.ClientChunkSize = 128;
+            _pubProfile.TargetEncodingProfile.Video.FrameRate.Numerator = srcvideoencodingprops.FrameRate.Numerator;
+            _pubProfile.TargetEncodingProfile.Video.FrameRate.Denominator = srcvideoencodingprops.FrameRate.Denominator;
+
+            // Audio size and fine tuning
+            _pubProfile.TargetEncodingProfile.Audio.Bitrate = srcaudioencodingprops.Bitrate;
+            _pubProfile.TargetEncodingProfile.Audio.ChannelCount = 1U;
+            _pubProfile.TargetEncodingProfile.Audio.SampleRate = srcaudioencodingprops.SampleRate;
+
+            _rtmpPublishSession = new RTMPPublishSession(new List<PublishProfile> { _pubProfile });
+
+            // Set delegates for handling errors
+            /*if (onClosedCallback != null)
+                _rtmpPublishSession.SessionClosed += onClosedCallback;
+
+            if (onFailedCallback != null)
+                _rtmpPublishSession.PublishFailed += onFailedCallback;*/
+
+            // Retrieve sink
+            _sink = await _rtmpPublishSession.GetCaptureSinkAsync();
+
+            _lowlagCapture = await _mediaCapture.PrepareLowLagRecordToCustomSinkAsync(_pubProfile.TargetEncodingProfile, _sink);
+            await _lowlagCapture.StartAsync();
+        }
+
+        async public void stopRTMPStreamingAsync()
+        {
+            if (_lowlagCapture != null)
+                await _lowlagCapture.FinishAsync();
+
+            _lowlagCapture = null;
         }
 
         /// <summary>
@@ -348,13 +427,29 @@ namespace HoloLensCameraStream
             }
 
             _mediaCapture = new MediaCapture();
+
+            // List capture profile, and select the best one for communication
+            IReadOnlyList<MediaCaptureVideoProfile> profiles = MediaCapture.FindKnownVideoProfiles(_deviceInfo.Id, KnownVideoProfile.VideoConferencing);
+            MediaCaptureVideoProfile selectedProfile = null;
+            if (profiles.Count > 0)
+                selectedProfile = profiles[0];
+           
+            if (selectedProfile == null)
+            {
+                throw new Exception("Unable to select VideoConferencing video profile");
+            }
+            
             await _mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings()
             {
                 VideoDeviceId = _deviceInfo.Id,
+                AudioDeviceId = _audioDeviceInfo.Id,
                 SourceGroup = _frameSourceGroup,
-                MemoryPreference = MediaCaptureMemoryPreference.Cpu, //TODO: Should this be the other option, Auto? GPU is not an option.
-                StreamingCaptureMode = StreamingCaptureMode.Video
+                MemoryPreference = MediaCaptureMemoryPreference.Auto,
+                StreamingCaptureMode = StreamingCaptureMode.AudioAndVideo,
+                VideoProfile = selectedProfile,
+                MediaCategory = MediaCategory.Communications
             });
+
             _mediaCapture.VideoDeviceController.Focus.TrySetAuto(true);
         }
 
@@ -449,6 +544,37 @@ namespace HoloLensCameraStream
             Properties.Add("VideoStabilizationEnabled", VideoStabilizationEnabled);
             Properties.Add("VideoStabilizationBufferLength", VideoStabilizationBufferLength);
             Properties.Add("GlobalOpacityCoefficient", GlobalOpacityCoefficient);
+            Properties.Add("RecordingIndicatorEnabled", false);
+            Properties.Add("PreferredHologramPerspective", 1); // Force rendering from PhotoVideo camera
+        }
+    }
+
+    public class AudioMRCSettings : IAudioEffectDefinition
+    {
+        public string ActivatableClassId
+        {
+            get
+            {
+                return "Windows.Media.MixedRealityCapture.MixedRealityCaptureAudioEffect";
+            }
+        }
+
+        public IPropertySet Properties
+        {
+            get; private set;
+        }
+
+        /**
+         * mixerMode: 0 = Mic, 1 = System, 2 = Both
+         *  
+         */
+        public AudioMRCSettings(uint mixerMode = 2, float loopbackGain = 0.0f, float microphoneGain = 0.0f)
+        {
+            Properties = (IPropertySet)new PropertySet();
+            Properties.Add("MixerMode", mixerMode);
+            Properties.Add("LoopbackGain", loopbackGain);
+            Properties.Add("MicrophoneGain", microphoneGain);
+
         }
     }
 }

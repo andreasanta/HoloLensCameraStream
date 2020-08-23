@@ -16,6 +16,10 @@ namespace HoloLensCameraStream
 
     public delegate void OnVideoModeStoppedCallback(VideoCaptureResult result);
 
+    public delegate void OnSessionPublishFailed(string reason);
+
+    public delegate void OnSessionClosedHandler(string reason);
+
     public sealed class VideoCapture
     {
         public static IEnumerable<Resolution> SupportedResolutions
@@ -48,7 +52,7 @@ namespace HoloLensCameraStream
             get; set;
         }
 
-        public static void CreateAync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
+        public static void CreateAsync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
         {
             throw new NotImplementedException();
         }
@@ -79,6 +83,20 @@ namespace HoloLensCameraStream
         }
 
         public void Dispose()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void startRTMPStreamingAsync(
+            string url,
+            OnSessionPublishFailed onFailedCallback = null,
+            OnSessionClosedHandler onClosedCallback = null
+        )
+        {
+            throw new NotImplementedException();
+        }
+
+        public void stopRTMPStreamingAsync()
         {
             throw new NotImplementedException();
         }
