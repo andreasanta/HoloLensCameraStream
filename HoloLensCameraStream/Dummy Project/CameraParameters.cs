@@ -7,15 +7,15 @@ using System;
 
 namespace HoloLensCameraStream
 {
-    public struct CameraParameters
+    public class CameraParameters
     {
         public CapturePixelFormat pixelFormat;
 
-        public int cameraResolutionHeight;
+        public uint cameraResolutionHeight;
 
-        public int cameraResolutionWidth;
+        public uint cameraResolutionWidth;
 
-        public int frameRate;
+        public uint frameRate;
 
 		public bool rotateImage180Degrees;
 
@@ -32,13 +32,15 @@ namespace HoloLensCameraStream
             get { throw new NotImplementedException(); }
             set { throw new NotImplementedException(); }
         }
+        CameraParameters() { }
 
         public CameraParameters(
-            CapturePixelFormat pixelFormat = CapturePixelFormat.BGRA32,
-            int cameraResolutionHeight = 720,
-            int cameraResolutionWidth = 1280,
-            int frameRate = 30,
-			bool rotateImage180Degrees = true)
+            CapturePixelFormat pixelFormat = CapturePixelFormat.NV12,
+            uint cameraResolutionHeight = 720,
+            uint cameraResolutionWidth = 1280,
+            uint frameRate = 30,
+			bool rotateImage180Degrees = true
+         )
         { throw new NotImplementedException(); }
     }
 }

@@ -9,7 +9,7 @@ namespace HoloLensCameraStream
     /// When calling VideoCapture.StartPhotoModeAsync, you must pass in a CameraParameters object
     /// that contains the various settings that the web camera will use.
     /// </summary>
-    public struct CameraParameters
+    public class CameraParameters
     {
         /// <summary>
         /// The pixel format used to capture and record your image data.
@@ -20,18 +20,18 @@ namespace HoloLensCameraStream
         /// The height of the image frame. Must be a valid option.
         /// Valid options can be obtained from VideoCapture.SupportedResolutions.
         /// </summary>
-        public int cameraResolutionHeight;
+        public uint cameraResolutionHeight;
 
         /// <summary>
         /// The width of the image frame. Must be a valid option.
         /// Valid options can be obtained from VideoCapture.SupportedResolutions.
         /// </summary>
-        public int cameraResolutionWidth;
+        public uint cameraResolutionWidth;
 
         /// <summary>
         /// The frames per second that the video will stream at. Must be supported based on the selected resolution.
         /// </summary>
-        public int frameRate;
+        public uint frameRate;
 
 		/// <summary>
         /// Rotate image by 180 degrees if you find it to be upside down in your application.
@@ -69,20 +69,23 @@ namespace HoloLensCameraStream
 			set {	videoStabilizationBufferSize = value ? 15 : 0; }
 		}
 
+        CameraParameters() { }
+
+
         public CameraParameters(
-            CapturePixelFormat pixelFormat = CapturePixelFormat.BGRA32,
-            int cameraResolutionHeight = 720,
-            int cameraResolutionWidth = 1280,
-            int frameRate = 30,
-			bool rotateImage180Degrees = true)
+            CapturePixelFormat pixelFormat = CapturePixelFormat.NV12,
+            uint cameraResolutionHeight = 720,
+            uint cameraResolutionWidth = 1280,
+            uint frameRate = 30,
+            bool rotateImage180Degrees = true
+        )
         {
             this.pixelFormat = pixelFormat;
             this.cameraResolutionHeight = cameraResolutionHeight;
             this.cameraResolutionWidth = cameraResolutionWidth;
             this.frameRate = frameRate;
 			this.rotateImage180Degrees = rotateImage180Degrees;
-			videoStabilizationBufferSize = 0;
-			hologramOpacity = 0.0f;
+            enableHolograms = true;
         }
     }
 }

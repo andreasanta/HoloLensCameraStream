@@ -14,6 +14,7 @@ namespace HoloLensCameraStream
         NV12,
         JPEG,
         PNG,
+        H264,
         Unknown
     }
 }

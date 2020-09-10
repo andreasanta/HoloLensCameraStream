@@ -20,6 +20,10 @@ using Windows.Foundation.Collections;
 using Windows.Foundation;
 using Windows.Media;
 
+using UnityEngine;
+using Windows.Media.Devices;
+using System.Reflection;
+
 namespace HoloLensCameraStream
 {
     /// <summary>
@@ -110,7 +114,7 @@ namespace HoloLensCameraStream
         {
             get
             {
-                return _frameReader != null || _lowlagCapture != null;
+                return _frameReader != null || IsStreamingRTMP;
             }
         }
 
@@ -123,8 +127,8 @@ namespace HoloLensCameraStream
             }
         }
 
-        static readonly MediaStreamType STREAM_TYPE = MediaStreamType.VideoPreview;
         static readonly Guid ROTATION_KEY = new Guid("C380465D-2271-428C-9B83-ECEA3B4A85C1");
+        static readonly MediaStreamType STREAM_TYPE = MediaStreamType.VideoRecord;
 
         MediaFrameSourceGroup _frameSourceGroup;
         MediaFrameSourceInfo _frameSourceInfo;
@@ -135,9 +139,10 @@ namespace HoloLensCameraStream
 
         // For RTMP streaming
         RTMPPublishSession _rtmpPublishSession = null;
-        PublishProfile _pubProfile = null;
-        LowLagMediaRecording _lowlagCapture = null;
+        PublishProfile _pubProfile;
+        LowLagMediaRecording _lowlagCapture;
         IMediaExtension _sink = null;
+        bool IsStreamingRTMP = false;
 
         VideoCapture(MediaFrameSourceGroup frameSourceGroup, MediaFrameSourceInfo frameSourceInfo, DeviceInformation deviceInfo, DeviceInformation audioDevice = null)
         {
@@ -145,6 +150,164 @@ namespace HoloLensCameraStream
             _frameSourceInfo    = frameSourceInfo;
             _deviceInfo         = deviceInfo;
             _audioDeviceInfo    = audioDevice;
+        }
+
+        public async Task logAllSupportedDevicesAndModes()
+        {
+            
+            var allFrameSourceGroups = await MediaFrameSourceGroup.FindAllAsync();
+            foreach (MediaFrameSourceGroup g in allFrameSourceGroups)
+            {
+                Debug.LogFormat("==> MediaFrameSourceGroup");
+                Debug.LogFormat("ID: {0}", g.Id);
+                Debug.LogFormat("NAME: {0}", g.DisplayName);
+
+                
+                foreach (MediaFrameSourceInfo i in g.SourceInfos)
+                {
+                    Debug.LogFormat("===> MediaFrameSourceInfo");
+                    Debug.LogFormat("ID: {0}", i.Id);
+                    Debug.LogFormat("PROFILE ID: {0}", i.ProfileId);
+                    Debug.LogFormat("MEDIA STREAM TYPE: {0}", i.MediaStreamType.ToString());
+                    Debug.LogFormat("SOURCE KIND: {0}", i.SourceKind.ToString());
+                    
+                    var colourGroup = await MediaFrameSourceGroup.FindAllAsync();
+                    foreach (var group in colourGroup)
+                    {
+                        Debug.LogFormat("====> MediaFrameSourceGroup {0}", group.DisplayName);
+                        foreach (var source in group.SourceInfos)
+                        {
+                            Debug.LogFormat("\tStream Source {0}, {1}, {2}", source.MediaStreamType, source.SourceKind, source.Id);
+
+                            foreach (var profile in source.VideoProfileMediaDescription)
+                            {
+                                Debug.LogFormat("Stream Profile {0}x{1} @ {2}", profile.Width, profile.Height, profile.FrameRate);
+                            }
+                        }
+                    }
+
+                    Debug.LogFormat("PROPERTIES");
+                    foreach (KeyValuePair<Guid, object> pair in i.Properties)
+                        Debug.LogFormat("{0} => {1}", pair.Key.ToString(), pair.Value.ToString());
+                }
+            }
+
+            Debug.LogFormat("");
+            Debug.LogFormat("");
+            Debug.LogFormat("==> VIDEO Devices");
+
+            var videoDevices = await DeviceInformation.FindAllAsync(DeviceClass.VideoCapture);
+            foreach (DeviceInformation d in videoDevices)
+            {
+                Debug.LogFormat("");
+                Debug.LogFormat("ID: {0}", d.Id);
+                Debug.LogFormat("NAME: {0}", d.Name);
+                Debug.LogFormat("IS DEFAULT: {0}", d.IsDefault.ToString());
+                Debug.LogFormat("IS ENABLED: {0}", d.IsEnabled.ToString());
+                Debug.LogFormat("KIND: {0}", d.Kind.ToString());
+
+                Debug.LogFormat("PROPERTIES");
+                foreach (KeyValuePair<string, object> pair in d.Properties)
+                    if (String.IsNullOrEmpty(pair.Key))
+                        Debug.LogFormat("{0} => {1}", pair.Key.ToString(), pair.Value != null ? pair.Value.ToString() : "NULL");
+                
+                Debug.LogFormat("");
+/*
+                Debug.LogFormat("==> Stream Properties");
+                MediaCapture _cap = new MediaCapture();
+                await _cap.InitializeAsync(new MediaCaptureInitializationSettings()
+                {
+                    VideoDeviceId = d.Id,
+                    MemoryPreference = MediaCaptureMemoryPreference.Auto
+                });
+
+                Debug.LogFormat("==> Initialized Media Capture");
+
+                var allPropertySets = _cap.VideoDeviceController.GetAvailableMediaStreamProperties(STREAM_TYPE).Select((x) =>
+                {
+
+                    Debug.LogFormat("===> First video profile found");
+
+                    if (x == null)
+                        return x;
+
+                    VideoEncodingProperties p = x as VideoEncodingProperties;
+
+                    Debug.LogFormat("PROFILE ID: {0}", p.ProfileId.ToString());
+                    Debug.LogFormat("BITRATE: {0}", p.Bitrate.ToString());
+                    Debug.LogFormat("FPS: {0}", (p.FrameRate.Numerator / p.FrameRate.Denominator).ToString());
+                    Debug.LogFormat("RESOLUTION: {0} x {1}", p.Height.ToString(), p.Width.ToString());
+                    Debug.LogFormat("ASPECT RATIO: {0}:", p.PixelAspectRatio.Numerator.ToString(), p.PixelAspectRatio.Denominator.ToString());
+                    Debug.LogFormat("PROPERTIES: {0}", p.Properties.ToString());
+                    Debug.LogFormat("");
+
+                    return x;
+
+                }); //Returns IEnumerable<VideoEncodingProperties>
+
+                _cap.Dispose();
+
+                Debug.LogFormat("==> Listed Video Encoding Properties");
+*/
+
+            }
+
+            Debug.LogFormat("");
+            Debug.LogFormat("");
+            Debug.LogFormat("==> AUDIO Devices");
+            
+            var audioDevices = await DeviceInformation.FindAllAsync(DeviceClass.AudioCapture);
+            foreach (DeviceInformation d in audioDevices)
+            {
+
+                Debug.LogFormat("ID: {0}", d.Id);
+                Debug.LogFormat("NAME: {0}", d.Name);
+                Debug.LogFormat("IS DEFAULT: {0}", d.IsDefault.ToString());
+                Debug.LogFormat("IS ENABLED: {0}", d.IsEnabled.ToString());
+                Debug.LogFormat("KIND: {0}", d.Kind.ToString());
+
+
+                Debug.LogFormat("PROPERTIES");
+                foreach (KeyValuePair<string, object> pair in d.Properties)
+                    if (String.IsNullOrEmpty(pair.Key))
+                        Debug.LogFormat("{0} => {1}", pair.Key.ToString(), pair.Value != null ? pair.Value.ToString() : "NULL");
+
+                /*
+                Debug.LogFormat("==> Stream Properties");
+                MediaCapture _cap = new MediaCapture();
+                await _cap.InitializeAsync(new MediaCaptureInitializationSettings()
+                {
+                    AudioDeviceId = d.Id,
+                    MemoryPreference = MediaCaptureMemoryPreference.Auto
+                });
+
+
+                var allPropertySets = _cap.VideoDeviceController.GetAvailableMediaStreamProperties(MediaStreamType.Audio).Select((x) =>
+                {
+
+                    Debug.LogFormat("===> First audio profile found");
+
+                    if (x == null)
+                        return x;
+
+                    AudioEncodingProperties p = x as AudioEncodingProperties;
+
+                    Debug.LogFormat("BITRATE: {0}", p.Bitrate.ToString());
+                    Debug.LogFormat("SAMPLERATE: {0}", p.SampleRate.ToString());
+                    Debug.LogFormat("BITSPERSAMPLE: {0}", p.BitsPerSample.ToString());
+                    Debug.LogFormat("CHANNELCOUNT: {0}", p.ChannelCount.ToString());
+                    Debug.LogFormat("IS SPATIAL: {0}:", p.IsSpatial.ToString());
+                    Debug.LogFormat("PROPERTIES: {0}", p.Properties.ToString());
+                    Debug.LogFormat("");
+
+                    return x;
+                });
+
+                _cap.Dispose();
+
+                Debug.LogFormat("==> Listed Audio Encoding Properties");
+                */
+            }
         }
 
         /// <summary>
@@ -155,7 +318,7 @@ namespace HoloLensCameraStream
         public static async void CreateAsync(OnVideoCaptureResourceCreatedCallback onCreatedCallback)
         {
             var allFrameSourceGroups = await MediaFrameSourceGroup.FindAllAsync();                                              //Returns IReadOnlyList<MediaFrameSourceGroup>
-            var candidateFrameSourceGroups = allFrameSourceGroups.Where(group => group.SourceInfos.Any(IsColorVideo));   //Returns IEnumerable<MediaFrameSourceGroup>
+            var candidateFrameSourceGroups = allFrameSourceGroups.Where(group => group.SourceInfos.Any((x) => IsColorVideo(x, STREAM_TYPE)));          //Returns IEnumerable<MediaFrameSourceGroup>
             var selectedFrameSourceGroup = candidateFrameSourceGroups.FirstOrDefault();                                         //Returns a single MediaFrameSourceGroup
             
             if (selectedFrameSourceGroup == null)
@@ -196,11 +359,11 @@ namespace HoloLensCameraStream
             onCreatedCallback?.Invoke(videoCapture);
         }
 
-        public IEnumerable<Resolution> GetSupportedResolutions()
+        public IEnumerable<Resolution> GetSupportedResolutions(MediaStreamType streamType = MediaStreamType.VideoPreview)
         {
             List<Resolution> resolutions = new List<Resolution>();
 
-            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(STREAM_TYPE).Select(x => x as VideoEncodingProperties); //Returns IEnumerable<VideoEncodingProperties>
+            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(streamType).Select(x => x as VideoEncodingProperties); //Returns IEnumerable<VideoEncodingProperties>
             foreach (var propertySet in allPropertySets)
             {
                 resolutions.Add(new Resolution((int)propertySet.Width, (int)propertySet.Height));
@@ -209,10 +372,10 @@ namespace HoloLensCameraStream
             return resolutions.AsReadOnly();
         }
 
-        public IEnumerable<float> GetSupportedFrameRatesForResolution(Resolution resolution)
+        public IEnumerable<float> GetSupportedFrameRatesForResolution(Resolution resolution, MediaStreamType streamType = MediaStreamType.VideoPreview)
         {
             //Get all property sets that match the supported resolution
-            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(STREAM_TYPE).Select((x) => x as VideoEncodingProperties)
+            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(streamType).Select((x) => x as VideoEncodingProperties)
                 .Where((x) =>
             {
                 return x != null &&
@@ -241,39 +404,57 @@ namespace HoloLensCameraStream
             return frameRates.AsReadOnly();
         }
 
-        public async void startRTMPStreamingAsync(
+        public async Task startRTMPStreamingAsync(
             string url,
+            string streamName = null,
+            CameraParameters cameraParams = null,
+            AudioParameters audioParams = null,
             OnSessionPublishFailed onFailedCallback = null,
             OnSessionClosedHandler onClosedCallback = null
         )
         {
-            var srcvideoencodingprops = _mediaCapture.VideoDeviceController.GetMediaStreamProperties(MediaStreamType.VideoRecord) as VideoEncodingProperties;
-            var srcaudioencodingprops = _mediaCapture.AudioDeviceController.GetMediaStreamProperties(MediaStreamType.Audio) as AudioEncodingProperties;
+            cameraParams = cameraParams ?? new CameraParameters();
+            audioParams = audioParams ?? new AudioParameters();
 
-            _pubProfile = new PublishProfile(RTMPServerType.Generic);
+            
+            VideoEncodingProperties srcvideoencodingprops = GetVideoEncodingPropertiesForCameraParams(cameraParams, STREAM_TYPE, MediaEncodingSubtypes.Nv12);
+            AudioEncodingProperties srcaudioencodingprops = GetAudioEncodingPropertiesForAudioParams(audioParams, MediaStreamType.Audio);
+
+/*            VideoEncodingProperties srcvideoencodingprops = _mediaCapture.VideoDeviceController.GetMediaStreamProperties(STREAM_TYPE) as VideoEncodingProperties;
+            AudioEncodingProperties srcaudioencodingprops = _mediaCapture.AudioDeviceController.GetMediaStreamProperties(STREAM_TYPE) as AudioEncodingProperties; */
+
+            Debug.LogFormat("Video subtype from source {0}", srcvideoencodingprops.Subtype);
+            Debug.LogFormat("Video resolution from source {0}x{1} @ {2} - {3} Kbits",
+                    srcvideoencodingprops.Width, srcvideoencodingprops.Width, srcvideoencodingprops.FrameRate.Numerator, srcvideoencodingprops.Bitrate / 1024);
+            Debug.LogFormat("Audio type from source {0} Hz, {1} bits, {2} channels", srcaudioencodingprops.Bitrate, srcaudioencodingprops.BitsPerSample, srcaudioencodingprops.ChannelCount);
+
+            _pubProfile = new PublishProfile(RTMPServerType.Generic, url);
 
             // Destination and lag
-            _pubProfile.EndpointUri = url;
+            _pubProfile.StreamName = streamName;
             _pubProfile.EnableLowLatency = true;
 
             // H264 Encoding
             _pubProfile.TargetEncodingProfile = MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD720p);
             _pubProfile.TargetEncodingProfile.Container = null;
-            _pubProfile.TargetEncodingProfile.Video.ProfileId = H264ProfileIds.Main;
+            _pubProfile.TargetEncodingProfile.Video.ProfileId = H264ProfileIds.Baseline;
 
             // Video size and fine tuning
             _pubProfile.TargetEncodingProfile.Video.Width = srcvideoencodingprops.Width;
             _pubProfile.TargetEncodingProfile.Video.Height = srcvideoencodingprops.Height;
             _pubProfile.TargetEncodingProfile.Video.Bitrate = srcvideoencodingprops.Bitrate;
-            _pubProfile.KeyFrameInterval = 2;
+            _pubProfile.KeyFrameInterval = (uint) cameraParams.frameRate * 2; // One keyframe every 2 seconds
             _pubProfile.ClientChunkSize = 128;
             _pubProfile.TargetEncodingProfile.Video.FrameRate.Numerator = srcvideoencodingprops.FrameRate.Numerator;
             _pubProfile.TargetEncodingProfile.Video.FrameRate.Denominator = srcvideoencodingprops.FrameRate.Denominator;
+            _pubProfile.TargetEncodingProfile.Video.PixelAspectRatio.Numerator = srcvideoencodingprops.PixelAspectRatio.Numerator;
+            _pubProfile.TargetEncodingProfile.Video.PixelAspectRatio.Denominator = srcvideoencodingprops.PixelAspectRatio.Denominator;
 
             // Audio size and fine tuning
+            _pubProfile.TargetEncodingProfile.Audio.BitsPerSample = srcaudioencodingprops.BitsPerSample;
             _pubProfile.TargetEncodingProfile.Audio.Bitrate = srcaudioencodingprops.Bitrate;
-            _pubProfile.TargetEncodingProfile.Audio.ChannelCount = 1U;
-            _pubProfile.TargetEncodingProfile.Audio.SampleRate = srcaudioencodingprops.SampleRate;
+            _pubProfile.TargetEncodingProfile.Audio.ChannelCount = srcaudioencodingprops.ChannelCount;
+            _pubProfile.TargetEncodingProfile.Audio.SampleRate = 44100;
 
             _rtmpPublishSession = new RTMPPublishSession(new List<PublishProfile> { _pubProfile });
 
@@ -287,16 +468,71 @@ namespace HoloLensCameraStream
             // Retrieve sink
             _sink = await _rtmpPublishSession.GetCaptureSinkAsync();
 
-            _lowlagCapture = await _mediaCapture.PrepareLowLagRecordToCustomSinkAsync(_pubProfile.TargetEncodingProfile, _sink);
-            await _lowlagCapture.StartAsync();
+            //_lowlagCapture = await _mediaCapture.PrepareLowLagRecordToCustomSinkAsync(_pubProfile.TargetEncodingProfile, _sink);
+            //await _lowlagCapture.StartAsync();
+
+            VideoEncodingProperties srcvideoencodingpropsh264 = srcvideoencodingprops;
+            srcvideoencodingpropsh264.Subtype = MediaEncodingSubtypes.H264;
+
+            await _mediaCapture.SetEncodingPropertiesAsync(STREAM_TYPE, srcvideoencodingpropsh264, _pubProfile.TargetEncodingProfile.Video.Properties);
+
+            // Now we're sure we get the proper media format
+            await _mediaCapture.StartRecordToCustomSinkAsync(_pubProfile.TargetEncodingProfile, _sink);
+
+            await _mediaCapture.VideoDeviceController.SetMediaStreamPropertiesAsync(STREAM_TYPE, srcvideoencodingprops);
+            await _mediaCapture.AudioDeviceController.SetMediaStreamPropertiesAsync(MediaStreamType.Audio, srcaudioencodingprops);
+
+            //	gr: taken from here https://forums.hololens.com/discussion/2009/mixedrealitycapture
+            // Historical context: https://github.com/VulcanTechnologies/HoloLensCameraStream/issues/6
+            /*if (cameraParams.rotateImage180Degrees)
+            {
+                srcvideoencodingprops.Properties.Add(ROTATION_KEY, 180);
+            }*/
+
+            IVideoEffectDefinition ved = new VideoMRCSettings(cameraParams.enableHolograms, cameraParams.enableVideoStabilization, cameraParams.videoStabilizationBufferSize, cameraParams.hologramOpacity);
+            await _mediaCapture.AddVideoEffectAsync(ved, STREAM_TYPE);
+
+            // And audio effect to capture too
+            IAudioEffectDefinition aed = new AudioMRCSettings();
+            await _mediaCapture.AddAudioEffectAsync(aed);
+
+            
+
+            this.IsStreamingRTMP = true;
         }
 
-        async public void stopRTMPStreamingAsync()
+        async public Task stopRTMPStreamingAsync()
         {
             if (_lowlagCapture != null)
-                await _lowlagCapture.FinishAsync();
+            {
+                await _lowlagCapture.StopAsync();
+                _lowlagCapture = null;
+            }
 
-            _lowlagCapture = null;
+            if (this.IsStreamingRTMP)
+                await _mediaCapture.StopPreviewAsync();
+        }
+
+        async public Task pauseRTMPStreamingAsync()
+        {
+            if (_lowlagCapture != null)
+                await _lowlagCapture.PauseAsync(MediaCapturePauseBehavior.RetainHardwareResources);
+
+            if (this.IsStreamingRTMP)
+                await _mediaCapture.StopPreviewAsync();
+
+            this.IsStreamingRTMP = false;
+        }
+
+        async public Task resumeRTMPStreamingAsync()
+        {
+            if (_lowlagCapture != null)
+                await _lowlagCapture.ResumeAsync();
+
+            if (this.IsStreamingRTMP)
+                await _mediaCapture.StartPreviewToCustomSinkAsync(_pubProfile.TargetEncodingProfile, _sink);
+
+            this.IsStreamingRTMP = true;
         }
 
         /// <summary>
@@ -336,7 +572,7 @@ namespace HoloLensCameraStream
 			IVideoEffectDefinition ved = new VideoMRCSettings( setupParams.enableHolograms, setupParams.enableVideoStabilization, setupParams.videoStabilizationBufferSize, setupParams.hologramOpacity );
 			await _mediaCapture.AddVideoEffectAsync(ved, MediaStreamType.VideoPreview);
         
-            await _mediaCapture.VideoDeviceController.SetMediaStreamPropertiesAsync(STREAM_TYPE, properties);
+            await _mediaCapture.VideoDeviceController.SetMediaStreamPropertiesAsync(MediaStreamType.VideoPreview, properties);
 
             onVideoModeStartedCallback?.Invoke(new VideoCaptureResult(0, ResultType.Success, true));
         }
@@ -421,6 +657,9 @@ namespace HoloLensCameraStream
 
         async Task CreateMediaCaptureAsync()
         {
+            await this.logAllSupportedDevicesAndModes();
+
+
             if (_mediaCapture != null)
             {
                 throw new Exception("The MediaCapture object has already been created.");
@@ -438,6 +677,9 @@ namespace HoloLensCameraStream
             {
                 throw new Exception("Unable to select VideoConferencing video profile");
             }
+
+            // Handle failed event
+            _mediaCapture.Failed += _mediaCapture_Failed;
             
             await _mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings()
             {
@@ -447,10 +689,17 @@ namespace HoloLensCameraStream
                 MemoryPreference = MediaCaptureMemoryPreference.Auto,
                 StreamingCaptureMode = StreamingCaptureMode.AudioAndVideo,
                 VideoProfile = selectedProfile,
-                MediaCategory = MediaCategory.Communications
+                MediaCategory = MediaCategory.Communications,
+                SharingMode = MediaCaptureSharingMode.SharedReadOnly
             });
 
-            _mediaCapture.VideoDeviceController.Focus.TrySetAuto(true);
+            //_mediaCapture.VideoDeviceController.Focus.TrySetAuto(true);
+
+        }
+
+        private void _mediaCapture_Failed(MediaCapture sender, MediaCaptureFailedEventArgs errorEventArgs)
+        {
+            Debug.LogFormat("Media Capture Failed for reason: {0} => {1}", errorEventArgs.Code, errorEventArgs.Message);
         }
 
         void HandleFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
@@ -470,35 +719,77 @@ namespace HoloLensCameraStream
             }
         }
 
-        VideoEncodingProperties GetVideoEncodingPropertiesForCameraParams(CameraParameters cameraParams)
+        VideoEncodingProperties GetVideoEncodingPropertiesForCameraParams(
+            CameraParameters cameraParams,
+            MediaStreamType streamType = MediaStreamType.VideoPreview,
+            string subtype = null
+         )
         {
-            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(STREAM_TYPE).Select((x) => x as VideoEncodingProperties)
+
+            Debug.LogFormat("Requesting capture format {0}x{1} @ {2}", cameraParams.cameraResolutionWidth, cameraParams.cameraResolutionHeight, cameraParams.frameRate);
+
+            var allPropertySets = _mediaCapture.VideoDeviceController.GetAvailableMediaStreamProperties(streamType).Select((x) => x as VideoEncodingProperties)
                 .Where((x) =>
             {
                 if (x == null) return false;
                 if (x.FrameRate.Denominator == 0) return false;
 
                 double calculatedFrameRate = (double)x.FrameRate.Numerator / (double)x.FrameRate.Denominator;
-                
-                return
-                x.Width == (uint)cameraParams.cameraResolutionWidth &&
-                x.Height == (uint)cameraParams.cameraResolutionHeight &&
-                (int)Math.Round(calculatedFrameRate) == cameraParams.frameRate;
+
+                Debug.LogFormat("Found Video Stream Profile {0}x{1} @ {2} - {3}:{4} - {5} KBits - Subtype {6}", x.Width, x.Height,
+                                    calculatedFrameRate, x.PixelAspectRatio.Numerator, x.PixelAspectRatio.Denominator, x.Bitrate, x.Subtype);
+
+                if (!String.IsNullOrEmpty(subtype) && x.Subtype.ToUpper() != subtype.ToUpper())
+                {
+                    Debug.LogFormat("Subtype mismatch {0} <> {1}", x.Subtype, subtype);
+                    return false;
+                }
+
+
+                return x.Width == (uint)cameraParams.cameraResolutionWidth &&
+                        x.Height == (uint)cameraParams.cameraResolutionHeight &&
+                        (int)Math.Round(calculatedFrameRate) == cameraParams.frameRate;
             }); //Returns IEnumerable<VideoEncodingProperties>
 
             if (allPropertySets.Count() == 0)
             {
-                throw new Exception("Could not find an encoding property set that matches the given camera parameters.");
+                throw new Exception("Could not find a video encoding property set that matches the given camera parameters.");
             }
             
             var chosenPropertySet = allPropertySets.FirstOrDefault();
             return chosenPropertySet;
         }
 
-        static bool IsColorVideo(MediaFrameSourceInfo sourceInfo)
+        AudioEncodingProperties GetAudioEncodingPropertiesForAudioParams(AudioParameters audioParams, MediaStreamType streamType = MediaStreamType.Audio)
+        {
+
+            Debug.LogFormat("Requesting audio format {0}Hz {1}", audioParams.SampleRate, audioParams.ChannelCount == 1U ? "Mono" : "Stereo");
+
+            var allPropertySets = _mediaCapture.AudioDeviceController.GetAvailableMediaStreamProperties(streamType).Select((x) => x as AudioEncodingProperties)
+                .Where((x) =>
+                {
+                    if (x == null) return false;
+
+                    Debug.LogFormat("Found Audio Stream Profile {0}Hz @ {1} bits - {2} chan - - Subtype {3}", x.SampleRate, x.Bitrate, x.ChannelCount, x.Subtype);
+
+                    return
+                        x.SampleRate == (uint)audioParams.SampleRate &&
+                        x.ChannelCount == (uint)audioParams.ChannelCount;
+                }); //Returns IEnumerable<AudioEncodingProperties>
+
+            if (allPropertySets.Count() == 0)
+            {
+                throw new Exception("Could not find an audio encoding property set that matches the given camera parameters.");
+            }
+
+            var chosenPropertySet = allPropertySets.FirstOrDefault();
+            return chosenPropertySet;
+        }
+
+        static bool IsColorVideo(MediaFrameSourceInfo sourceInfo, MediaStreamType streamType = MediaStreamType.VideoPreview)
         {
             //TODO: Determine whether 'VideoPreview' or 'VideoRecord' is the appropriate type. What's the difference?
-            return (sourceInfo.MediaStreamType == STREAM_TYPE &&
+            return (sourceInfo.MediaStreamType == streamType &&
                 sourceInfo.SourceKind == MediaFrameSourceKind.Color);
         }
 
@@ -514,6 +805,8 @@ namespace HoloLensCameraStream
                     return MediaEncodingSubtypes.Jpeg;
                 case CapturePixelFormat.PNG:
                     return MediaEncodingSubtypes.Png;
+                case CapturePixelFormat.H264:
+                    return MediaEncodingSubtypes.H264;
                 default:
                     return MediaEncodingSubtypes.Bgra8;
             }

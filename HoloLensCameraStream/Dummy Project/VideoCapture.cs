@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace HoloLensCameraStream
 {
@@ -87,18 +88,31 @@ namespace HoloLensCameraStream
             throw new NotImplementedException();
         }
 
-        public void startRTMPStreamingAsync(
+        public async Task startRTMPStreamingAsync(
             string url,
+            string streamName = null,
+            CameraParameters cameraParams = null,
+            AudioParameters audioParams = null,
             OnSessionPublishFailed onFailedCallback = null,
             OnSessionClosedHandler onClosedCallback = null
         )
         {
-            throw new NotImplementedException();
+            throw new NotImplementedException("This can only be executed on the actual hololens");
         }
 
-        public void stopRTMPStreamingAsync()
+        public async Task stopRTMPStreamingAsync()
         {
-            throw new NotImplementedException();
+            throw new NotImplementedException("This can only be executed on the actual hololens");
+        }
+
+        public async Task pauseRTMPStreamingAsync()
+        {
+            throw new NotImplementedException("This can only be executed on the actual hololens");
+        }
+
+        async public Task resumeRTMPStreamingAsync()
+        {
+            throw new NotImplementedException("This can only be executed on the actual hololens");
         }
     }
 }
